@@ -66,6 +66,7 @@ private:
         }
 
         return target == value;
+        
     }
 
     SemanticType checkExpression(const ASTPtr& expression) {
