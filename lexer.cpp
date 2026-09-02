@@ -267,6 +267,7 @@ string tokenName(TokenType type) {
     return "UNKNOWN";
 }
 
+#ifndef LEXER_NO_MAIN
 int main() {
     string source =
         "শুরু\n"
@@ -295,4 +296,5 @@ int main() {
 
     return 0;
 }
+#endif
 

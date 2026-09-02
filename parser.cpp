@@ -10,6 +10,7 @@
 //
 // For now, parser.cpp includes lexer.cpp so it can be tested directly.
 // Remove the include below once a proper lexer.h is created.
+#define LEXER_NO_MAIN
 #include "lexer.cpp"
 
 using namespace std;
@@ -646,6 +647,7 @@ public:
 // TEST
 // ============================================================
 
+#ifndef PARSER_NO_MAIN
 int main() {
     string source =
         "শুরু\n"
@@ -672,3 +674,4 @@ int main() {
 
     return 0;
 }
+#endif
