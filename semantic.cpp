@@ -59,6 +59,8 @@ private:
                type == SemanticType::DECIMAL;
     }
 
+
+
     bool canAssign(SemanticType target, SemanticType value) const {
         if (target == SemanticType::DECIMAL &&
             value == SemanticType::INTEGER) {
