@@ -1,245 +1,142 @@
-#define LEXER_NO_MAIN
-#define PARSER_NO_MAIN
 #include "parser.cpp"
+#include <map>
 
-#include <cmath>
-#include <sstream>
-#include <unordered_map>
-
-using namespace std;
-
-enum class SemanticType {
-    INTEGER,
-    DECIMAL,
-    BOOLEAN,
-    INVALID
-};
-
-string semanticTypeName(SemanticType type) {
-    switch (type) {
-        case SemanticType::INTEGER: return "সংখ্যা";
-        case SemanticType::DECIMAL: return "দশমিক";
-        case SemanticType::BOOLEAN: return "condition";
-        case SemanticType::INVALID: return "invalid";
-    }
-
-    return "invalid";
-}
+const string INT_TYPE = "সংখ্যা";
+const string DEC_TYPE = "দশমিক";
+const string BOOL_TYPE = "শর্ত";   // result of a comparison
+const string BAD_TYPE = "error";    // an error was already reported
 
 class SemanticAnalyzer {
-private:
-    vector<unordered_map<string, SemanticType>> scopes;
-    vector<string> errors;
+    map<string, string> variables;   // symbol table: variable name -> type
+    int errors = 0;
 
-    void report(const string& message) {
-        errors.push_back("Semantic error: " + message);
+    void report(string message) {
+        errors++;
+        cerr << "Semantic Error: " << message << endl;
     }
 
-    void beginScope() {
-        scopes.push_back({});
+    bool isNumber(string t) { return t == INT_TYPE || t == DEC_TYPE; }
+
+    // a decimal variable can hold an integer, but not the other way round
+    bool canStore(string target, string value) {
+        return target == value || (target == DEC_TYPE && value == INT_TYPE);
     }
 
-    void endScope() {
-        scopes.pop_back();
-    }
+    // returns the type of an expression (and saves it in the node)
+    string checkExpression(ASTNode* node) {
+        if (node == nullptr) return BAD_TYPE;
 
-    SemanticType lookup(const string& name) const {
-        for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {
-            auto found = scope->find(name);
-            if (found != scope->end()) {
-                return found->second;
-            }
+        NumberNode* number = dynamic_cast<NumberNode*>(node);
+        if (number != nullptr) {
+            node->type = (number->value.find('.') == string::npos) ? INT_TYPE : DEC_TYPE;
+            return node->type;
         }
 
-        return SemanticType::INVALID;
-    }
-
-    bool isNumeric(SemanticType type) const {
-        return type == SemanticType::INTEGER ||
-               type == SemanticType::DECIMAL;
-    }
-
-
-
-    bool canAssign(SemanticType target, SemanticType value) const {
-        if (target == SemanticType::DECIMAL &&
-            value == SemanticType::INTEGER) {
-            return true;
-        }
-
-        return target == value;
-        
-    }
-
-    SemanticType checkExpression(const ASTPtr& expression) {
-        if (auto number = dynamic_pointer_cast<NumberNode>(expression)) {
-            return number->value.find('.') == string::npos
-                ? SemanticType::INTEGER
-                : SemanticType::DECIMAL;
-        }
-
-        if (auto identifier = dynamic_pointer_cast<IdentifierNode>(expression)) {
-            SemanticType type = lookup(identifier->name);
-            if (type == SemanticType::INVALID) {
-                report("'" + identifier->name + "' is not declared.");
-            }
-            return type;
-        }
-
-        auto binary = dynamic_pointer_cast<BinaryOpNode>(expression);
-        if (!binary) {
-            report("Unknown expression.");
-            return SemanticType::INVALID;
-        }
-
-        SemanticType left = checkExpression(binary->left);
-        SemanticType right = checkExpression(binary->right);
-
-        if (binary->op == ">" || binary->op == "<" ||
-            binary->op == ">=" || binary->op == "<=" ||
-            binary->op == "==" || binary->op == "!=") {
-            if (!isNumeric(left) || !isNumeric(right)) {
-                report("Comparison '" + binary->op +
-                       "' requires two numeric expressions.");
-            }
-            return SemanticType::BOOLEAN;
-        }
-
-        if (!isNumeric(left) || !isNumeric(right)) {
-            report("Operator '" + binary->op +
-                   "' requires numeric expressions.");
-            return SemanticType::INVALID;
-        }
-
-        if (binary->op == "%" &&
-            (left != SemanticType::INTEGER || right != SemanticType::INTEGER)) {
-            report("Operator '%' requires integer expressions.");
-        }
-
-        if (binary->op == "/") {
-            auto divisor = dynamic_pointer_cast<NumberNode>(binary->right);
-            if (divisor && stod(divisor->value) == 0.0) {
-                report("Division by zero is not allowed.");
-            }
-        }
-
-        return left == SemanticType::DECIMAL || right == SemanticType::DECIMAL
-            ? SemanticType::DECIMAL
-            : SemanticType::INTEGER;
-    }
-
-    void checkStatement(const ASTPtr& statement) {
-        if (auto declaration = dynamic_pointer_cast<DeclarationNode>(statement)) {
-            SemanticType type = declaration->type == "সংখ্যা"
-                ? SemanticType::INTEGER
-                : SemanticType::DECIMAL;
-
-            if (scopes.back().find(declaration->name) != scopes.back().end()) {
-                report("'" + declaration->name +
-                       "' is already declared in this scope.");
+        IdentifierNode* id = dynamic_cast<IdentifierNode*>(node);
+        if (id != nullptr) {
+            if (variables.count(id->name) == 0) {
+                report("variable '" + id->name + "' is not declared");
+                node->type = BAD_TYPE;
             } else {
-                scopes.back()[declaration->name] = type;
+                node->type = variables[id->name];
             }
+            return node->type;
+        }
 
-            if (declaration->initializer) {
-                SemanticType value = checkExpression(declaration->initializer);
-                if (value != SemanticType::INVALID &&
-                    !canAssign(type, value)) {
-                    report("cannot initialize " + semanticTypeName(type) +
-                           " variable '" + declaration->name + "' with " +
-                           semanticTypeName(value) + " value.");
-                }
+        BinaryNode* bin = dynamic_cast<BinaryNode*>(node);
+        if (bin == nullptr) return BAD_TYPE;
+
+        string left = checkExpression(bin->left);
+        string right = checkExpression(bin->right);
+        node->type = BAD_TYPE;
+        if (left == BAD_TYPE || right == BAD_TYPE) return BAD_TYPE;
+
+        if (!isNumber(left) || !isNumber(right)) {
+            report("operator '" + bin->op + "' needs numbers on both sides");
+            return BAD_TYPE;
+        }
+
+        bool isComparison = bin->op == ">" || bin->op == "<" || bin->op == ">=" ||
+                            bin->op == "<=" || bin->op == "==" || bin->op == "!=";
+        if (isComparison) {
+            node->type = BOOL_TYPE;
+            return node->type;
+        }
+
+        if (bin->op == "/" || bin->op == "%") {
+            NumberNode* divisor = dynamic_cast<NumberNode*>(bin->right);
+            if (divisor != nullptr && stod(divisor->value) == 0.0) {
+                report("division by zero");
+                return BAD_TYPE;
             }
+        }
+
+        node->type = (left == DEC_TYPE || right == DEC_TYPE) ? DEC_TYPE : INT_TYPE;
+        return node->type;
+    }
+
+    void checkCondition(ASTNode* condition) {
+        string t = checkExpression(condition);
+        if (t != BOOL_TYPE && t != BAD_TYPE) report("condition must be a comparison");
+    }
+
+    void checkBlock(vector<ASTNode*>& statements) {
+        for (ASTNode* s : statements) checkStatement(s);
+    }
+
+    void checkStatement(ASTNode* node) {
+        if (node == nullptr) return;
+
+        DeclarationNode* decl = dynamic_cast<DeclarationNode*>(node);
+        if (decl != nullptr) {
+            string valueType = checkExpression(decl->value);
+            if (variables.count(decl->name) > 0)
+                report("variable '" + decl->name + "' is already declared");
+            else
+                variables[decl->name] = decl->varType;
+            if (valueType != BAD_TYPE && !canStore(decl->varType, valueType))
+                report("cannot store " + valueType + " value in " + decl->varType + " variable '" + decl->name + "'");
             return;
         }
 
-        if (auto assignment = dynamic_pointer_cast<AssignmentNode>(statement)) {
-            SemanticType target = lookup(assignment->name);
-            if (target == SemanticType::INVALID) {
-                report("'" + assignment->name + "' is not declared.");
+        AssignmentNode* assign = dynamic_cast<AssignmentNode*>(node);
+        if (assign != nullptr) {
+            string valueType = checkExpression(assign->value);
+            if (variables.count(assign->name) == 0) {
+                report("variable '" + assign->name + "' is not declared");
+                return;
             }
-
-            SemanticType value = checkExpression(assignment->expression);
-            if (target != SemanticType::INVALID &&
-                value != SemanticType::INVALID &&
-                !canAssign(target, value)) {
-                report("cannot assign " + semanticTypeName(value) +
-                       " value to " + semanticTypeName(target) +
-                       " variable '" + assignment->name + "'.");
-            }
+            assign->varType = variables[assign->name];
+            if (valueType != BAD_TYPE && !canStore(assign->varType, valueType))
+                report("cannot store " + valueType + " value in " + assign->varType + " variable '" + assign->name + "'");
             return;
         }
 
-        if (auto print = dynamic_pointer_cast<PrintNode>(statement)) {
+        PrintNode* print = dynamic_cast<PrintNode*>(node);
+        if (print != nullptr) {
             checkExpression(print->expression);
             return;
         }
 
-        if (auto ifNode = dynamic_pointer_cast<IfNode>(statement)) {
-            if (checkExpression(ifNode->condition) != SemanticType::BOOLEAN) {
-                report("'যদি' condition must be a comparison.");
-            }
-            checkBlock(ifNode->thenBranch);
-            checkBlock(ifNode->elseBranch);
+        IfNode* ifNode = dynamic_cast<IfNode*>(node);
+        if (ifNode != nullptr) {
+            checkCondition(ifNode->condition);
+            checkBlock(ifNode->ifBody);
+            checkBlock(ifNode->elseBody);
             return;
         }
 
-        if (auto whileNode = dynamic_pointer_cast<WhileNode>(statement)) {
-            if (checkExpression(whileNode->condition) != SemanticType::BOOLEAN) {
-                report("'যতক্ষণ' condition must be a comparison.");
-            }
+        WhileNode* whileNode = dynamic_cast<WhileNode*>(node);
+        if (whileNode != nullptr) {
+            checkCondition(whileNode->condition);
             checkBlock(whileNode->body);
         }
     }
 
-    void checkBlock(const vector<ASTPtr>& statements) {
-        beginScope();
-        for (const ASTPtr& statement : statements) {
-            checkStatement(statement);
-        }
-        endScope();
-    }
-
 public:
-    const vector<string>& analyze(const shared_ptr<ProgramNode>& program) {
-        errors.clear();
-        scopes.clear();
-        beginScope();
-
-        for (const ASTPtr& statement : program->statements) {
-            checkStatement(statement);
-        }
-
-        endScope();
+    // returns the number of errors found
+    int analyze(ProgramNode* program) {
+        checkBlock(program->statements);
         return errors;
     }
 };
-
-int main() {
-    const string source =
-        "শুরু\n"
-        "সংখ্যা x = 10;\n"
-        "দশমিক y = x + 5.5;\n"
-        "যদি (x > 5) {\n"
-        "    দেখাও(y);\n"
-        "}\n"
-        "শেষ";
-
-    Lexer lexer(source);
-    Parser parser(lexer.tokenize());
-    shared_ptr<ProgramNode> program = parser.parse();
-
-    SemanticAnalyzer analyzer;
-    const vector<string>& errors = analyzer.analyze(program);
-
-    if (errors.empty()) {
-        cout << "Semantic analysis successful.\n";
-        return 0;
-    }
-
-    for (const string& error : errors) {
-        cerr << error << '\n';
-    }
-
-    return 1;
-}
