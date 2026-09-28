@@ -1,0 +1,25 @@
+Bangla Language Grammar (BNF)
+=============================
+
+<program>      ::= "শুরু" <statements> "শেষ"
+<statements>   ::= <statement> <statements> | ε
+<statement>    ::= <declaration> | <assignment> | <print> | <if> | <while>
+
+<declaration>  ::= <type> IDENTIFIER "=" <expression> ";"
+<assignment>   ::= IDENTIFIER "=" <expression> ";"
+<print>        ::= "দেখাও" "(" <expression> ")" ";"
+<if>           ::= "যদি" "(" <condition> ")" <block>
+                 | "যদি" "(" <condition> ")" <block> "নাহলে" <block>
+<while>        ::= "যতক্ষণ" "(" <condition> ")" <block>
+<block>        ::= "{" <statements> "}"
+
+<type>         ::= "সংখ্যা" | "দশমিক"
+<condition>    ::= <expression> <compare-op> <expression>
+<compare-op>   ::= ">" | "<" | ">=" | "<=" | "==" | "!="
+
+<expression>   ::= <term> | <expression> "+" <term> | <expression> "-" <term>
+<term>         ::= <factor> | <term> "*" <factor> | <term> "/" <factor> | <term> "%" <factor>
+<factor>       ::= NUMBER | IDENTIFIER | "-" <factor> | "(" <expression> ")"
+
+IDENTIFIER     ::= (letter | "_") (letter | digit | "_")*      (letters may be Bangla or English)
+NUMBER         ::= digit+ | digit+ "." digit*
